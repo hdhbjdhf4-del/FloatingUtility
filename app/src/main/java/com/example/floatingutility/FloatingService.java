@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
+import android.os.CountDownTimer;
 import android.os.IBinder;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -20,6 +21,8 @@ public class FloatingService extends Service {
     private View panel;
     private WindowManager.LayoutParams bubbleParams;
     private WindowManager.LayoutParams panelParams;
+    private CountDownTimer timer;
+    private TextView timerStatus;
 
     @Override public void onCreate() {
         super.onCreate();
@@ -31,7 +34,8 @@ public class FloatingService extends Service {
             type, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT);
         bubbleParams.gravity = Gravity.TOP | Gravity.START;
-        bubbleParams.x = 24; bubbleParams.y = 180;
+        bubbleParams.x = 24;
+        bubbleParams.y = 180;
 
         TextView b = new TextView(this);
         b.setText("F");
@@ -39,7 +43,7 @@ public class FloatingService extends Service {
         b.setTextSize(22);
         b.setTypeface(null, Typeface.BOLD);
         b.setGravity(Gravity.CENTER);
-        b.setBackgroundColor(Color.rgb(20,150,75));
+        b.setBackgroundColor(Color.rgb(20, 150, 75));
         b.setPadding(18, 12, 18, 12);
         bubble = b;
         bubble.setOnClickListener(v -> togglePanel());
@@ -48,18 +52,22 @@ public class FloatingService extends Service {
     }
 
     private void togglePanel() {
-        if (panel != null) { removePanel(); return; }
+        if (panel != null) {
+            removePanel();
+            return;
+        }
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(18, 16, 18, 16);
-        box.setBackgroundColor(Color.rgb(32,36,43));
+        box.setBackgroundColor(Color.rgb(32, 36, 43));
 
-        TextView heading = label("FLOATING UTILITY", 18, true);
-        box.addView(heading);
-        addAction(box, "Home", "Floating utility is active.");
-        addAction(box, "Timer", "Timer shortcut selected.");
-        addAction(box, "Settings", "No device settings are changed.");
-        addAction(box, "About", "Simple overlay utility • Version 1.0");
+        box.addView(label("FLOATING UTILITY", 18, true));
+        timerStatus = label("Timer ready", 14, false);
+        box.addView(timerStatus);
+        addAction(box, "Home", "HOME");
+        addAction(box, "Timer · 15 seconds", "TIMER");
+        addAction(box, "Settings", "SETTINGS");
+        addAction(box, "About", "ABOUT");
         addAction(box, "Close panel", "CLOSE");
         addAction(box, "Exit", "EXIT");
 
@@ -71,14 +79,17 @@ public class FloatingService extends Service {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT);
         panelParams.gravity = Gravity.TOP | Gravity.START;
-        panelParams.x = 100; panelParams.y = 180;
+        panelParams.x = 100;
+        panelParams.y = 180;
         makeDraggable(panel, panelParams);
         wm.addView(panel, panelParams);
     }
 
     private TextView label(String text, int size, boolean bold) {
         TextView t = new TextView(this);
-        t.setText(text); t.setTextSize(size); t.setTextColor(Color.WHITE);
+        t.setText(text);
+        t.setTextSize(size);
+        t.setTextColor(Color.WHITE);
         t.setPadding(12, 10, 12, 10);
         if (bold) t.setTypeface(null, Typeface.BOLD);
         return t;
@@ -88,16 +99,53 @@ public class FloatingService extends Service {
         TextView item = label(text, 16, false);
         box.addView(item);
         item.setOnClickListener(v -> {
-            if ("CLOSE".equals(action)) removePanel();
-            else if ("EXIT".equals(action)) stopSelf();
-            else Toast.makeText(this, action, Toast.LENGTH_SHORT).show();
+            switch (action) {
+                case "TIMER":
+                    startTimer();
+                    break;
+                case "CLOSE":
+                    removePanel();
+                    break;
+                case "EXIT":
+                    stopSelf();
+                    break;
+                case "HOME":
+                    Intent home = new Intent(Intent.ACTION_MAIN);
+                    home.addCategory(Intent.CATEGORY_HOME);
+                    home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    startActivity(home);
+                    break;
+                case "SETTINGS":
+                    Toast.makeText(this, "Drag the panel to move it. Timer runs for 15 seconds.", Toast.LENGTH_SHORT).show();
+                    break;
+                case "ABOUT":
+                    Toast.makeText(this, "Floating Utility · Version 1.0", Toast.LENGTH_SHORT).show();
+                    break;
+            }
         });
+    }
+
+    private void startTimer() {
+        if (timer != null) timer.cancel();
+        if (timerStatus != null) timerStatus.setText("15 seconds");
+        timer = new CountDownTimer(15000, 1000) {
+            @Override public void onTick(long millisUntilFinished) {
+                if (timerStatus != null) {
+                    timerStatus.setText("Timer: " + ((millisUntilFinished + 999) / 1000) + "s");
+                }
+            }
+            @Override public void onFinish() {
+                if (timerStatus != null) timerStatus.setText("Timer complete");
+                Toast.makeText(FloatingService.this, "15-second timer complete", Toast.LENGTH_SHORT).show();
+            }
+        }.start();
     }
 
     private void removePanel() {
         if (panel != null) {
             try { wm.removeView(panel); } catch (Exception ignored) {}
             panel = null;
+            timerStatus = null;
         }
     }
 
@@ -107,13 +155,15 @@ public class FloatingService extends Service {
             float touchX, touchY;
             @Override public boolean onTouch(View v, MotionEvent e) {
                 if (e.getAction() == MotionEvent.ACTION_DOWN) {
-                    startX = params.x; startY = params.y;
-                    touchX = e.getRawX(); touchY = e.getRawY();
+                    startX = params.x;
+                    startY = params.y;
+                    touchX = e.getRawX();
+                    touchY = e.getRawY();
                     return false;
                 }
                 if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                    params.x = startX + (int)(e.getRawX() - touchX);
-                    params.y = startY + (int)(e.getRawY() - touchY);
+                    params.x = startX + (int) (e.getRawX() - touchX);
+                    params.y = startY + (int) (e.getRawY() - touchY);
                     try { wm.updateViewLayout(view, params); } catch (Exception ignored) {}
                     return true;
                 }
@@ -127,6 +177,7 @@ public class FloatingService extends Service {
     }
 
     @Override public void onDestroy() {
+        if (timer != null) timer.cancel();
         removePanel();
         if (bubble != null) {
             try { wm.removeView(bubble); } catch (Exception ignored) {}
